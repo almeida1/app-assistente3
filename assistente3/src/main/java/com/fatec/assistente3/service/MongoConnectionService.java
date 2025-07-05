@@ -9,6 +9,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.mongodb.ConnectionString;
@@ -30,91 +31,91 @@ import dev.langchain4j.model.openai.OpenAiEmbeddingModelName;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.mongodb.IndexMapping;
 import dev.langchain4j.store.embedding.mongodb.MongoDbEmbeddingStore;
+
 @Service
 public class MongoConnectionService {
 	CarregaDocumentosJson incorporaDoc;
-	
+	private static final Logger logger = LogManager.getLogger(MongoConnectionService.class);
+	// Injetar o MongoClient configurado pelo Spring Boot ao ler o arquivo
+	// application.properties
+	private MongoClient mongoClient;
+
+	@Autowired // O Spring injetará o MongoClient configurado automaticamente
+	public MongoConnectionService(MongoClient mongoClient) {
+		this.mongoClient = mongoClient;
+		this.incorporaDoc = new CarregaDocumentosJson(); 
+	}
+
 	public void testConnection() {
-		//liberar o ip de acesso no mongodb
-		Logger logger = LogManager.getLogger(this.getClass());
-		logger.info(">>>>>> Tentativa de conexao com o Atlas");
-		incorporaDoc = new CarregaDocumentosJson();
+		logger.info(">>>>>> Configuração iniciada");
 
-		String CONNECTION_URI = System.getenv("CONNECTION_URI");
-		
-		ServerApi serverApi = ServerApi.builder().version(ServerApiVersion.V1).build();
-		MongoClientSettings settings = MongoClientSettings.builder()
-				.applyConnectionString(new ConnectionString(CONNECTION_URI)).serverApi(serverApi).build();
-		logger.info(">>>>>> Configuração realizada");
-		// Create a new client and connect to the server
-		try (MongoClient mongoClient = MongoClients.create(settings)) {
-			try {
-				// Send a ping to confirm a successful connection
-				MongoDatabase database = mongoClient.getDatabase("admin");
-				database.runCommand(new Document("ping", 1));
-				logger.info(">>>>>> Ping realizado com sucesso app conectado para o MongoDB");
-				// Embedding Store  
-				EmbeddingStore<TextSegment> embeddingStore = createEmbeddingStore(mongoClient);
-				// Embedding Model setup  
-				OpenAiEmbeddingModel embeddingModel = OpenAiEmbeddingModel.builder()  
-				        .apiKey("demo")  
-				        .modelName(OpenAiEmbeddingModelName.TEXT_EMBEDDING_3_SMALL)  
-				        .build();
-				// Chat Model setup
-	            ChatLanguageModel chatModel = OpenAiChatModel.builder()
-	                    .apiKey("demo")
-	                    .modelName("gpt-4")
-	                    .build();
-	            // Load documents
-	           // String resourcePath = "https://huggingface.co/datasets/MongoDB/devcenter-articles/raw/main/devcenter-content-snapshot.2024-05-20.json";
-	            String resourcePath = "test-docs.json";
-	            
-	            // JsonDownloader loaderJson = new JsonDownloader();
-	           // String dados = loaderJson.downloadJson(resourcePath);
-	            List<TextSegment> documents = incorporaDoc.loadJsonDocuments(resourcePath, 800, 200);
+		// O MongoClient já está injetado e configurado pelo Spring Boot
+		// Portanto, ele já leu a string de conexão do application.properties (e da
+		// variável de ambiente)
 
-	            logger.info(">>>>>> Loaded " + documents.size() + " documents");
+		try {
+			logger.info(">>>>>> Tentativa de conexão com o Atlas");
 
-	            for (int i = 0; i < documents.size()/10; i++) {
-	                TextSegment segment = documents.get(i);
-	                Embedding embedding = embeddingModel.embed(segment.text()).content();
-	                embeddingStore.add(embedding, segment);
-	            }
+			// Enviar um ping para confirmar uma conexão bem-sucedida
+			MongoDatabase database = mongoClient.getDatabase("admin"); // Ou o nome do seu banco de dados
+			database.runCommand(new Document("ping", 1));
+			logger.info(">>>>>> Ping realizado com sucesso! Aplicação conectada ao MongoDB.");
 
-	            logger.info(">>>>>> Vetores embeddings criados");
-	           
-				// https://dev.to/mongodb/how-to-make-a-rag-application-with-langchain4j-1mad
-			} 
-			catch (IOException e) {
-				System.out.println(e.getMessage());
+			// Embedding Store
+			EmbeddingStore<TextSegment> embeddingStore = createEmbeddingStore(mongoClient);
+			logger.info(">>>>>> Embedding Store criada.");
+
+			// Embedding Model setup
+			// Garanta que você está obtendo a chave da API de forma segura (variável de
+			// ambiente, Vault, etc.)
+			// 'demo' não é seguro para uso real.
+			OpenAiEmbeddingModel embeddingModel = OpenAiEmbeddingModel.builder().apiKey("demo") // Substitua por
+																								// ${OPENAI_API_KEY} ou
+																								// similar
+					.modelName(OpenAiEmbeddingModelName.TEXT_EMBEDDING_3_SMALL).build();
+			logger.info(">>>>>> Embedding Model configurado.");
+
+			// Chat Model setup
+			ChatLanguageModel chatModel = OpenAiChatModel.builder().apiKey("demo") // Substitua por ${OPENAI_API_KEY} ou
+																					// similar
+					.modelName("gpt-4").build();
+			logger.info(">>>>>> Chat Model configurado.");
+
+			String resourcePath = "test-docs.json";
+			List<TextSegment> documents = incorporaDoc.loadJsonDocuments(resourcePath, 800, 200);
+
+			logger.info(">>>>>> Carregados " + documents.size() + " documentos.");
+
+			for (int i = 0; i < documents.size() / 10; i++) {
+				TextSegment segment = documents.get(i);
+				Embedding embedding = embeddingModel.embed(segment.text()).content();
+				embeddingStore.add(embedding, segment);
 			}
-			catch (MongoException e) {
-				e.printStackTrace();
-			}
+
+			logger.info(">>>>>> Vetores embeddings criados e adicionados à Embedding Store.");
+
+		} catch (IOException e) {
+			logger.error("IO Exception =>" + e.getMessage(), e); // Use error para exceções
+		} catch (MongoException e) {
+			logger.error("MongoDB exception => " + e.getMessage(), e);
+		} catch (Exception e) {
+			logger.error("Exceção não esperada => " + e.getMessage(), e);
 		}
 	}
-	private static EmbeddingStore<TextSegment> createEmbeddingStore(MongoClient mongoClient) {
-	    String databaseName = "rag_app";
-	    String collectionName = "embeddings";
-	    String indexName = "embedding";
-	    Long maxResultRatio = 10L;
-	    CreateCollectionOptions createCollectionOptions = new CreateCollectionOptions();
-	    Bson filter = null;
-	    Set<String> metadataFields = new HashSet<>();
-	    IndexMapping indexMapping = new IndexMapping(1536, metadataFields);
-	    Boolean createIndex = true;
 
-	    return new MongoDbEmbeddingStore(
-	            mongoClient,
-	            databaseName,
-	            collectionName,
-	            indexName,
-	            maxResultRatio,
-	            createCollectionOptions,
-	            filter,
-	            indexMapping,
-	            createIndex
-	    );
+	private static EmbeddingStore<TextSegment> createEmbeddingStore(MongoClient mongoClient) {
+		String databaseName = "rag_app";
+		String collectionName = "embeddings";
+		String indexName = "embedding";
+		Long maxResultRatio = 10L;
+		CreateCollectionOptions createCollectionOptions = new CreateCollectionOptions();
+		Bson filter = null;
+		Set<String> metadataFields = new HashSet<>();
+		IndexMapping indexMapping = new IndexMapping(1536, metadataFields);
+		Boolean createIndex = true;
+
+		return new MongoDbEmbeddingStore(mongoClient, databaseName, collectionName, indexName, maxResultRatio,
+				createCollectionOptions, filter, indexMapping, createIndex);
 	}
-	
+
 }
