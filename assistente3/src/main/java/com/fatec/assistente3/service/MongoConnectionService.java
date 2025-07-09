@@ -36,42 +36,34 @@ import dev.langchain4j.store.embedding.mongodb.MongoDbEmbeddingStore;
 public class MongoConnectionService {
 	CarregaDocumentosJson incorporaDoc;
 	private static final Logger logger = LogManager.getLogger(MongoConnectionService.class);
-	// Injetar o MongoClient configurado pelo Spring Boot ao ler o arquivo
-	// application.properties
+	// o MongoClient configurado pelo Spring Boot ao ler o arquivo application.properties
 	private MongoClient mongoClient;
 
-	@Autowired // O Spring injetará o MongoClient configurado automaticamente
+	//O Spring injetará o MongoClient configurado automaticamente
 	public MongoConnectionService(MongoClient mongoClient) {
 		this.mongoClient = mongoClient;
 		this.incorporaDoc = new CarregaDocumentosJson(); 
 	}
 
 	public void testConnection() {
-		logger.info(">>>>>> Configuração iniciada");
-
-		// O MongoClient já está injetado e configurado pelo Spring Boot
-		// Portanto, ele já leu a string de conexão do application.properties (e da
-		// variável de ambiente)
-
 		try {
 			logger.info(">>>>>> Tentativa de conexão com o Atlas");
 
-			// Enviar um ping para confirmar uma conexão bem-sucedida
+			// Enviar um ping para confirmar se a conexão foi bem-sucedida
 			MongoDatabase database = mongoClient.getDatabase("admin"); // Ou o nome do seu banco de dados
 			database.runCommand(new Document("ping", 1));
 			logger.info(">>>>>> Ping realizado com sucesso! Aplicação conectada ao MongoDB.");
 
-			// Embedding Store
+			// Embedding Store configurado para armazenar, recuperar e gerenciar os embedding
+			// os embedding simplificam a representação de dados do mundo real, 
+			// preservando as relações semânticas e sintáticas.
+			// Um embedding é um vetor (uma lista de números) que representa um texto de forma numéric
 			EmbeddingStore<TextSegment> embeddingStore = createEmbeddingStore(mongoClient);
 			logger.info(">>>>>> Embedding Store criada.");
 
-			// Embedding Model setup
-			// Garanta que você está obtendo a chave da API de forma segura (variável de
-			// ambiente, Vault, etc.)
-			// 'demo' não é seguro para uso real.
-			OpenAiEmbeddingModel embeddingModel = OpenAiEmbeddingModel.builder().apiKey("demo") // Substitua por
-																								// ${OPENAI_API_KEY} ou
-																								// similar
+			// Embedding Model setup - em um abiente de producao 
+			// a chave apikey deve ser recuperada de maneira segura
+			OpenAiEmbeddingModel embeddingModel = OpenAiEmbeddingModel.builder().apiKey("demo") 
 					.modelName(OpenAiEmbeddingModelName.TEXT_EMBEDDING_3_SMALL).build();
 			logger.info(">>>>>> Embedding Model configurado.");
 
@@ -102,7 +94,12 @@ public class MongoConnectionService {
 			logger.error("Exceção não esperada => " + e.getMessage(), e);
 		}
 	}
-
+/**
+ * Objetivo - preparar onde os vetores de embeddings (representações numéricas de texto) 
+ * serão armazenados e como eles poderão ser consultados para encontrar similaridades.
+ * @param mongoClient
+ * @return
+ */
 	private static EmbeddingStore<TextSegment> createEmbeddingStore(MongoClient mongoClient) {
 		String databaseName = "rag_app";
 		String collectionName = "embeddings";
@@ -114,8 +111,17 @@ public class MongoConnectionService {
 		IndexMapping indexMapping = new IndexMapping(1536, metadataFields);
 		Boolean createIndex = true;
 
-		return new MongoDbEmbeddingStore(mongoClient, databaseName, collectionName, indexName, maxResultRatio,
-				createCollectionOptions, filter, indexMapping, createIndex);
+		return new MongoDbEmbeddingStore(
+				mongoClient, 
+				databaseName, 
+				collectionName, 
+				indexName, 
+				maxResultRatio,
+				createCollectionOptions, 
+				filter, 
+				indexMapping, 
+				createIndex
+			);
 	}
 
 }
